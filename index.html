@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Obfuscador de Script</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 40px;
+            background: #1e1e1e;
+            color: #f0f0f0;
+        }
+        input, button {
+            margin: 10px 0;
+            padding: 10px;
+            font-size: 16px;
+        }
+        .container {
+            max-width: 600px;
+            margin: auto;
+            background: #2e2e2e;
+            padding: 20px;
+            border-radius: 8px;
+        }
+        .progress-bar {
+            width: 100%;
+            background: #555;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+        .progress {
+            height: 20px;
+            width: 0%;
+            background: #4caf50;
+            text-align: center;
+            color: white;
+            line-height: 20px;
+            transition: width 0.3s;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Obfuscador de Script Lua</h1>
+    <input type="file" id="fileInput" accept=".txt,.lua">
+    <br>
+    <label>Profundidade de Obfuscação:</label>
+    <input type="number" id="depthInput" value="5" min="1" max="20">
+    <br>
+    <button onclick="obfuscate()">Obfuscar e Baixar</button>
+    <p id="status"></p>
+
+    <div class="progress-bar">
+        <div class="progress" id="progress">0%</div>
+    </div>
+</div>
+
+<script>
+    const charset = 'QWERTYUIOPASDFGHJKLZXCVBNMplmoknijbuhvygctfxrdzesawq1234567890+/';
+
+    function base64(str) {
+        let bin = '';
+        for (let i = 0; i < str.length; i++) {
+            let b = str.charCodeAt(i);
+            for (let j = 8; j >= 1; j--) {
+                bin += (b % Math.pow(2, j) - b % Math.pow(2, j - 1)) > 0 ? '1' : '0';
+            }
+        }
+        bin += '0000';
+        let result = bin.match(/\d{1,6}/g).map(bits => {
+            if (bits.length < 6) return '';
+            let n = 0;
+            for (let i = 0; i < 6; i++) {
+                n += bits[i] === '1' ? Math.pow(2, 5 - i) : 0;
+            }
+            return charset[n];
+        }).join('');
+        let pad = ['', '==', '='][str.length % 3];
+        return result + pad;
+    }
+
+    function sha(data) {
+        let sum = 0;
+        for (let i = 0; i < data.length; i++) {
+            sum = (sum + data.charCodeAt(i) * (i + 1)) % 1000000007;
+        }
+        return sum;
+    }
+
+    function decoderTemplate(encoded, checksum) {
+        const rand = () => Math.floor(Math.random() * 90000) + 10000;
+        const key = 'K' + rand();
+        const decodeFunc = 'D' + rand();
+        const checkFunc = 'C' + rand();
+        const codeVar = 'X' + rand();
+
+        return `
+local ${key}='${charset}'
+local function ${decodeFunc}(s)
+    return (s:gsub('.',function(c)
+        if c == '=' then return '' end
+        local r,f='',(${key}:find(c)-1)
+        for i=6,1,-1 do r=r..(f%2^i - f%2^(i-1) > 0 and'1'or'0')end
+        return r
+    end):gsub('%d%d%d?%d?%d?%d?%d?%d?',function(bits)
+        if #bits~=8 then return''end
+        local n=0
+        for i=1,8 do
+            n=n+(bits:sub(i,i)=='1'and 2^(8-i)or 0)
+        end
+        return string.char(n)
+    end))
+end
+
+local function ${checkFunc}(v)local s=0 for i=1,#v do s=(s+v:byte(i)*i)%1000000007 end return s end
+
+local ${codeVar} = ${decodeFunc}('${encoded}')
+if ${checkFunc}(${codeVar})~=${checksum} then return end
+loadstring(${codeVar})()
+`;
+    }
+
+    async function recursiveObfuscate(payload, depth, updateProgress) {
+        let current = payload;
+        for (let i = 0; i < depth; i++) {
+            const checksum = sha(current);
+            current = decoderTemplate(base64(current), checksum);
+            updateProgress(((i + 1) / depth) * 100);
+            await new Promise(r => setTimeout(r, 50)); // Simula processamento
+        }
+        return current;
+    }
+
+    function obfuscate() {
+        const fileInput = document.getElementById('fileInput');
+        const depthInput = document.getElementById('depthInput');
+        const status = document.getElementById('status');
+        const progressBar = document.getElementById('progress');
+
+        if (!fileInput.files.length) {
+            alert("Selecione um arquivo .txt ou .lua!");
+            return;
+        }
+
+        const file = fileInput.files[0];
+        const reader = new FileReader();
+
+        reader.onload = async function(e) {
+            const payload = e.target.result;
+            const depth = parseInt(depthInput.value) || 5;
+
+            status.textContent = "Obfuscando...";
+            progressBar.style.width = '0%';
+            progressBar.textContent = '0%';
+
+            const final = await recursiveObfuscate(payload, depth, (percent) => {
+                progressBar.style.width = percent + '%';
+                progressBar.textContent = Math.round(percent) + '%';
+            });
+
+            const blob = new Blob([final], { type: 'text/plain' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = file.name.replace(/\.(txt|lua)$/, '') + '_obfuscated.lua';
+            a.click();
+
+            status.textContent = "✅ Código obfuscado e baixado!";
+            progressBar.style.width = '100%';
+            progressBar.textContent = '100%';
+        };
+
+        reader.readAsText(file);
+    }
+</script>
+
+</body>
+</html>
